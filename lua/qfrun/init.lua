@@ -81,17 +81,18 @@ end
 local function apply_qf_syntax()
 	vim.cmd([[
     syntax clear
+    syntax match QfIndicator /\v\|\s*\zs\^\~*/
     syntax match QfDate / \d\+:\d\+:\d\+/
     syntax match QfError /^▸ \zsE:[^ ]*/ 
     syntax match QfLineCol / \d\+:\d\+ /
     syntax match QfErrorMsg /use.*$/
     syntax match QfWarn /^▸ \zsW:[^ ]*/
-    syntax match QfContext /^  .*/
+    syntax match QfContext /^  .*/ contains=ALL
     syntax match QfFinish /\<finished\>/
     syntax match QfExit /\<exited abnormally\>/
     syntax match QfCode /\vcode\s+\zs\d+/
 
-    highlight QfIndicator guifg=#887ec8 ctermfg=Magenta gui=bold,underline
+    highlight QfIndicator guifg=#887ec8 ctermfg=Magenta
     highlight QfDate guifg=NvimLightGreen ctermfg=Green
     highlight QfLineCol guifg=#c7c938 ctermfg=Yellow
     highlight QfErrorMsg guifg=#abb2bf ctermfg=White
@@ -248,13 +249,15 @@ function Qfrun:update_qf(qf_list, over)
 		vim.api.nvim_set_current_win(curwin)
 	end
 
-	vim.api.nvim_win_call(qf_win, function()
-		local count = vim.api.nvim_buf_line_count(0)
-		local height = vim.api.nvim_win_get_height(qf_win)
-		if count > height then
-			vim.api.nvim_win_set_cursor(qf_win, { count, 0 })
-		end
-		apply_qf_syntax()
+	vim.schedule(function()
+		vim.api.nvim_win_call(qf_win, function()
+			local count = vim.api.nvim_buf_line_count(0)
+			local height = vim.api.nvim_win_get_height(qf_win)
+			if count > height then
+				vim.api.nvim_win_set_cursor(qf_win, { count, 0 })
+			end
+			apply_qf_syntax()
+		end)
 	end)
 end
 
@@ -304,8 +307,10 @@ function Qfrun:compile(compile_cmd)
 		})
 
 		if action == "r" then
-			vim.api.nvim_win_call(qf_win, function()
-				apply_qf_syntax()
+			vim.schedule(function()
+				vim.api.nvim_win_call(qf_win, function()
+					apply_qf_syntax()
+				end)
 			end)
 		end
 	end)
@@ -407,5 +412,12 @@ function Qfrun:close_running()
 		self.job = nil
 	end
 end
+
+vim.api.nvim_create_autocmd("FileType", {
+	pattern = "qf",
+	callback = function()
+		apply_qf_syntax()
+	end,
+})
 
 return Qfrun
