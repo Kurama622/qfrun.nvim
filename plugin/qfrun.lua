@@ -1,10 +1,11 @@
 local qfr = require("qfrun")
 vim.api.nvim_create_user_command("QfCompile", function()
-	if not qfr.ansi_ns then
-		qfr.ansi_ns = vim.api.nvim_create_namespace("ansi_colors")
-	end
 	qfr:close_running()
 	qfr:compile()
+end, {})
+
+vim.api.nvim_create_user_command("QfClose", function()
+	qfr:close_running()
 end, {})
 
 vim.api.nvim_create_user_command("QfRecompile", function()
