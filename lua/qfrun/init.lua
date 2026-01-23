@@ -1,8 +1,10 @@
 local Qfrun = {
 	["cpp"] = { "g++ -Wall ${source} -o ${output} && ./${output}", "make" },
 	["python"] = { "python ${source}" },
+	["lua"] = { "nvim -l ${source}" },
 
 	parse_stdout_as_stderr = false,
+	project_config_name = ".env",
 	last_cmd = nil,
 	qf_id = nil,
 	job = nil, ---@type vim.SystemObj?
@@ -236,7 +238,7 @@ function Qfrun:compile(compile_cmd)
 				end
 
 				vim.schedule(function()
-					stdout_buffer = stdout_buffer .. data
+					stdout_buffer = stdout_buffer .. (data:gsub("\r", ""))
 					local lines = vim.split(stdout_buffer, "\n", { plain = true })
 					if not data:match("\n$") then
 						stdout_buffer = lines[#lines]
@@ -270,7 +272,7 @@ function Qfrun:compile(compile_cmd)
 				end
 
 				vim.schedule(function()
-					stderr_buffer = stderr_buffer .. data
+					stderr_buffer = stderr_buffer .. (data:gsub("\r", ""))
 					local lines = vim.split(stderr_buffer, "\n", { plain = true })
 					if not data:match("\n$") then
 						stderr_buffer = lines[#lines]
@@ -323,27 +325,87 @@ function Qfrun:compile(compile_cmd)
 		end)
 	end
 
-	if not compile_cmd then
-		local buf = vim.api.nvim_get_current_buf()
-		local ft = vim.bo[buf].ft
-		local compile_cfg = self[ft]
-		local compile_cfg_type = type(compile_cfg)
-		if compile_cfg_type == "table" and #self[ft] > 1 then
-			vim.ui.select(compile_cfg, { prompt = "compile:" }, function(choice)
-				if choice then
-					execute(choice)
+	local function env_with_compile(callback)
+		local cwd = vim.uv.cwd()
+		local env_file = vim.fs.joinpath(cwd, self.project_config_name)
+		return coroutine.wrap(function()
+			local co = assert(coroutine.running())
+			vim.uv.fs_open(env_file, "r", 438, function(err, fd)
+				if err and vim.startswith(err, "ENOENT") then
+					coroutine.resume(co, fd)
+					return
+				end
+				assert(not err, err)
+				coroutine.resume(co, fd)
+			end)
+			local fd = coroutine.yield()
+
+			if fd == nil then
+				vim.schedule(function()
+					callback(compile_cmd)
+				end)
+				return
+			end
+
+			vim.uv.fs_fstat(fd, function(err, stat)
+				assert(not err)
+				coroutine.resume(co, stat.size)
+			end)
+			local size = coroutine.yield()
+			if size == 0 then
+				vim.schedule(function()
+					callback(compile_cmd)
+				end)
+				return
+			end
+
+			vim.uv.fs_read(fd, size, 0, function(err, data)
+				assert(not err)
+				vim.uv.fs_close(fd)
+				local lines = vim.split(data, "\n")
+				local cmd = nil
+				for _, line in ipairs(lines) do
+					if line:find("^COMPILE_COMMAND") then
+						cmd = line:sub(17, #line)
+						break
+					end
+				end
+				if cmd then
+					coroutine.resume(co, cmd)
+				else
+					vim.notify(env_file .. ": Do Not Find 'COMPILE_COMMAND'", vim.log.levels.ERROR)
 				end
 			end)
-		elseif compile_cfg_type == "string" then
-			execute(compile_cfg)
-		elseif compile_cfg_type == "table" and #self[ft] == 1 then
-			execute(compile_cfg[1])
-		elseif compile_cfg_type == nil then
+			local cmd = coroutine.yield()
+			vim.schedule(function()
+				callback(cmd)
+			end)
+		end)()
+	end
+
+	env_with_compile(function(cmd)
+		if not cmd then
+			local buf = vim.api.nvim_get_current_buf()
+			local ft = vim.bo[buf].ft
+			local compile_cfg = self[ft]
+			local compile_cfg_type = type(compile_cfg)
+			if compile_cfg_type == "table" and #self[ft] > 1 then
+				vim.ui.select(compile_cfg, { prompt = "compile:" }, function(choice)
+					if choice then
+						execute(choice)
+					end
+				end)
+			elseif compile_cfg_type == "string" then
+				execute(compile_cfg)
+			elseif compile_cfg_type == "table" and #self[ft] == 1 then
+				execute(compile_cfg[1])
+			elseif compile_cfg_type == nil then
+				return
+			end
 			return
 		end
-		return
-	end
-	execute(compile_cmd)
+		execute(cmd)
+	end)
 end
 
 function Qfrun:close_running()
@@ -355,7 +417,7 @@ function Qfrun:close_running()
 end
 
 vim.api.nvim_create_autocmd("FileType", {
-	pattern = "qf",
+	pattern = "Qfrun",
 	callback = function()
 		apply_qf_syntax()
 	end,
