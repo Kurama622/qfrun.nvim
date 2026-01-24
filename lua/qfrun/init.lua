@@ -42,7 +42,9 @@ local function get_relative_path(base, target)
 end
 
 function Qfrun.setup(opts)
-	Qfrun = vim.api.tbl_extend("force", Qfrun, opts or {})
+	for key, val in pairs(opts) do
+		Qfrun[key] = val
+	end
 end
 
 local function parse_err(stderr, save_item)
