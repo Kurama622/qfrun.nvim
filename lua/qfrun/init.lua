@@ -375,7 +375,6 @@ function Qfrun:compile(compile_cmd)
   end
 
   local function env_with_compile(callback)
-    local cwd = vim.uv.cwd()
     local env_file = vim.fs.joinpath(cwd, self.project_config_name)
     return coroutine.wrap(function()
       local co = assert(coroutine.running())
