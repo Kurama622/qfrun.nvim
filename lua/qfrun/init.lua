@@ -1,5 +1,5 @@
 local Qfrun = {
-	["cpp"] = { "g++ -Wall ${SRC} -o ${TARGET} && ./${TARGET}", "make all && make run" },
+	["cpp"] = { "g++ -Wall ${SRC} -o ${TARGET} && ./${TARGET}" },
 	["python"] = { "python ${SRC}" },
 	["lua"] = { "nvim -l ${SRC}" },
 
@@ -8,6 +8,8 @@ local Qfrun = {
 	last_cmd = nil,
 	qf_id = nil,
 	job = nil, ---@type vim.SystemObj?
+	job_status = false,
+	exec_id = 0,
 }
 
 local function get_relative_path(base, target)
@@ -233,6 +235,7 @@ function Qfrun:compile(compile_cmd)
 	local bufname = vim.api.nvim_buf_get_name(buf)
 	local cwd = vim.uv.cwd()
 	bufname = get_relative_path(cwd, bufname)
+	self.job_status = true
 
 	local function execute(cmd)
 		cmd = ((cmd:gsub("${SRC}", bufname)):gsub("${TARGET}", vim.fn.fnamemodify(bufname, ":r")))
@@ -245,7 +248,12 @@ function Qfrun:compile(compile_cmd)
 
 		info_list.cmd.text = self.last_cmd
 		info_list.start.text = ("Compilation started at %s"):format(os.date("%a %b %H:%M:%S"))
+		self.exec_id = self.exec_id + 1
+		local id = self.exec_id
 		vim.schedule(function()
+			if (not self.job_status) or id ~= self.exec_id then
+				return
+			end
 			local action = "a"
 			local qf_win
 			if self.qf_id then
@@ -268,16 +276,18 @@ function Qfrun:compile(compile_cmd)
 				end)
 			end
 		end)
-
 		self.job = vim.system({ "sh", "-c", cmd }, {
 			text = true,
 			detach = true,
 			stdout = function(err, data)
-				if err or not data then
+				if err or not data or not self.job_status or id ~= self.exec_id then
 					return
 				end
 
 				vim.schedule(function()
+					if (not self.job_status) or id ~= self.exec_id then
+						return
+					end
 					stdout_buffer = stdout_buffer .. (data:gsub("\r", ""))
 					local lines = vim.split(stdout_buffer, "\n", { plain = true })
 					if not data:match("\n$") then
@@ -307,11 +317,14 @@ function Qfrun:compile(compile_cmd)
 			end,
 
 			stderr = function(err, data)
-				if err or not data then
+				if err or not data or not self.job_status or id ~= self.exec_id then
 					return
 				end
 
 				vim.schedule(function()
+					if (not self.job_status) or id ~= self.exec_id then
+						return
+					end
 					stderr_buffer = stderr_buffer .. (data:gsub("\r", ""))
 					local lines = vim.split(stderr_buffer, "\n", { plain = true })
 					if not data:match("\n$") then
@@ -334,6 +347,9 @@ function Qfrun:compile(compile_cmd)
 		}, function(out)
 			local duration = (vim.uv.hrtime() - start_time) / 1e9
 			vim.schedule(function()
+				if (not self.job_status) or id ~= self.exec_id then
+					return
+				end
 				local list = {}
 				if stdout_buffer ~= "" then
 					table.insert(list, {
@@ -449,6 +465,7 @@ function Qfrun:compile(compile_cmd)
 end
 
 function Qfrun:close_running()
+	self.job_status = false
 	if self.job and not self.job:is_closing() then
 		vim.uv.kill(-self.job.pid, "sigterm")
 		vim.notify("close running job " .. self.job.pid, vim.log.levels.WARN)
