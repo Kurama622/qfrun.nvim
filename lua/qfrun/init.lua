@@ -271,6 +271,7 @@ function Qfrun:compile(compile_cmd)
 
 		self.job = vim.system({ "sh", "-c", cmd }, {
 			text = true,
+			detach = true,
 			stdout = function(err, data)
 				if err or not data then
 					return
@@ -449,7 +450,7 @@ end
 
 function Qfrun:close_running()
 	if self.job and not self.job:is_closing() then
-		self.job:kill("sigterm")
+		vim.uv.kill(-self.job.pid, "sigterm")
 		vim.notify("close running job " .. self.job.pid, vim.log.levels.WARN)
 		self.job = nil
 	end
