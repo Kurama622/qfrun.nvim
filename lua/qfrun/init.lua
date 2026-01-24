@@ -1,123 +1,123 @@
 local Qfrun = {
-	["cpp"] = { "g++ -Wall ${SRC} -o ${TARGET} && ./${TARGET}" },
-	["python"] = { "python ${SRC}" },
-	["lua"] = { "nvim -l ${SRC}" },
+  ["cpp"] = { "g++ -Wall ${SRC} -o ${TARGET} && ./${TARGET}" },
+  ["python"] = { "python ${SRC}" },
+  ["lua"] = { "nvim -l ${SRC}" },
 
-	parse_stdout_as_stderr = false,
-	project_config_name = ".env",
-	last_cmd = nil,
-	qf_id = nil,
-	job = nil, ---@type vim.SystemObj?
-	job_status = false,
-	exec_id = 0,
+  parse_stdout_as_stderr = false,
+  project_config_name = ".env",
+  last_cmd = nil,
+  qf_id = nil,
+  job = nil, ---@type vim.SystemObj?
+  job_status = false,
+  exec_id = 0,
 }
 
 local function get_relative_path(base, target)
-	-- 1. 规范化路径：转为绝对路径并统一分隔符
-	local function normalize(p)
-		return vim.fn.fnamemodify(p, ":p"):gsub("\\", "/"):gsub("/$", "")
-	end
+  -- 1. 规范化路径：转为绝对路径并统一分隔符
+  local function normalize(p)
+    return vim.fn.fnamemodify(p, ":p"):gsub("\\", "/"):gsub("/$", "")
+  end
 
-	local b_split = vim.split(normalize(base), "/", { trimempty = true })
-	local t_split = vim.split(normalize(target), "/", { trimempty = true })
+  local b_split = vim.split(normalize(base), "/", { trimempty = true })
+  local t_split = vim.split(normalize(target), "/", { trimempty = true })
 
-	-- 2. 找出公共前缀
-	local i = 1
-	while i <= #b_split and i <= #t_split and b_split[i] == t_split[i] do
-		i = i + 1
-	end
+  -- 2. 找出公共前缀
+  local i = 1
+  while i <= #b_split and i <= #t_split and b_split[i] == t_split[i] do
+    i = i + 1
+  end
 
-	-- 3. 计算需要向上跳多少层 (..)
-	local ups = {}
-	for _ = i, #b_split do
-		table.insert(ups, "..")
-	end
+  -- 3. 计算需要向上跳多少层 (..)
+  local ups = {}
+  for _ = i, #b_split do
+    table.insert(ups, "..")
+  end
 
-	-- 4. 拼接目标剩余路径
-	local remains = {}
-	for j = i, #t_split do
-		table.insert(remains, t_split[j])
-	end
+  -- 4. 拼接目标剩余路径
+  local remains = {}
+  for j = i, #t_split do
+    table.insert(remains, t_split[j])
+  end
 
-	local res = table.concat(vim.list_extend(ups, remains), "/")
-	return res == "" and "." or res
+  local res = table.concat(vim.list_extend(ups, remains), "/")
+  return res == "" and "." or res
 end
 
 function Qfrun.setup(opts)
-	for key, val in pairs(opts) do
-		Qfrun[key] = val
-	end
+  for key, val in pairs(opts) do
+    Qfrun[key] = val
+  end
 end
 
 local function parse_err(stderr, save_item)
-	local list = {}
-	local lines = vim.split(stderr, "\n", { trimempty = true })
+  local list = {}
+  local lines = vim.split(stderr, "\n", { trimempty = true })
 
-	local i = 1
-	local prev_item = {}
-	while i <= #lines do
-		local line = lines[i]
+  local i = 1
+  local prev_item = {}
+  while i <= #lines do
+    local line = lines[i]
 
-		local filename, lnum, col, type_str, msg = line:match("^([^:]+):(%d+):(%d+):%s*(%w+):%s*(.*)$")
-		local bufnr = vim.fn.bufadd(filename)
+    local filename, lnum, col, type_str, msg = line:match("^([^:]+):(%d+):(%d+):%s*(%w+):%s*(.*)$")
+    local bufnr = vim.fn.bufadd(filename)
 
-		if filename and lnum and col then
-			prev_item = {
-				filename = filename,
-				lnum = tonumber(lnum),
-				col = tonumber(col),
-				type = type_str:sub(1, 1):upper(),
-				text = msg,
-				bufnr = bufnr,
-			}
-			table.insert(list, prev_item)
-			save_item.lnum = prev_item.lnum
-			save_item.col = prev_item.col
-			save_item.bufnr = prev_item.bufnr
+    if filename and lnum and col then
+      prev_item = {
+        filename = filename,
+        lnum = tonumber(lnum),
+        col = tonumber(col),
+        type = type_str:sub(1, 1):upper(),
+        text = msg,
+        bufnr = bufnr,
+      }
+      table.insert(list, prev_item)
+      save_item.lnum = prev_item.lnum
+      save_item.col = prev_item.col
+      save_item.bufnr = prev_item.bufnr
 
-			local j = i + 1
+      local j = i + 1
 
-			while j <= #lines do
-				local next_line = lines[j]
+      while j <= #lines do
+        local next_line = lines[j]
 
-				if
-					next_line:match("^%s*%d+%s*|")
-					or next_line:match("^%s*|")
-					or next_line:match("^%s*%^")
-					or next_line:match("generated")
-				then
-					table.insert(list, {
-						filename = prev_item.filename,
-						bufnr = prev_item.bufnr,
-						text = next_line,
-					})
-					j = j + 1
-				else
-					break
-				end
-			end
+        if
+          next_line:match("^%s*%d+%s*|")
+          or next_line:match("^%s*|")
+          or next_line:match("^%s*%^")
+          or next_line:match("generated")
+        then
+          table.insert(list, {
+            filename = prev_item.filename,
+            bufnr = prev_item.bufnr,
+            text = next_line,
+          })
+          j = j + 1
+        else
+          break
+        end
+      end
 
-			i = j
-		else
-			if save_item then
-				table.insert(list, {
-					filename = save_item.filename,
-					bufnr = save_item.bufnr,
-					lnum = save_item.lnum,
-					col = save_item.col,
-					text = line,
-					user_data = "compile_info",
-				})
-			end
-			i = i + 1
-		end
-	end
+      i = j
+    else
+      if save_item then
+        table.insert(list, {
+          filename = save_item.filename,
+          bufnr = save_item.bufnr,
+          lnum = save_item.lnum,
+          col = save_item.col,
+          text = line,
+          user_data = "compile_info",
+        })
+      end
+      i = i + 1
+    end
+  end
 
-	return list
+  return list
 end
 
 local function apply_qf_syntax()
-	vim.cmd([[
+  vim.cmd([[
     syntax clear
     syntax match QfIndicator /\v\|*\s*\zs\~*\^\~*/
     syntax match QfDate / \d\+:\d\+:\d\+/
@@ -144,340 +144,333 @@ local function apply_qf_syntax()
 end
 
 local info_list = {
-	start = {
-		user_data = "compile_info",
-	},
-	fill = {
-		user_data = "compile_info",
-		text = " ",
-	},
-	cmd = {
-		user_data = "compile_info",
-	},
+  start = {
+    user_data = "compile_info",
+  },
+  fill = {
+    user_data = "compile_info",
+    text = " ",
+  },
+  cmd = {
+    user_data = "compile_info",
+  },
 }
 
 function Qfrun:update_qf(qf_list, over)
-	vim.fn.setqflist({}, "a", {
-		items = qf_list,
-		title = over and "Compilation" or "Compiling",
-		quickfixtextfunc = function(info)
-			local lines = {}
-			self.qf_id = info.id
+  vim.fn.setqflist({}, "a", {
+    items = qf_list,
+    title = over and "Compilation" or "Compiling",
+    quickfixtextfunc = function(info)
+      local lines = {}
+      self.qf_id = info.id
 
-			local res = vim.fn.getqflist({ id = info.id, items = 1, winid = 0 })
-			local items = res.items
+      local res = vim.fn.getqflist({ id = info.id, items = 1, winid = 0 })
+      local items = res.items
 
-			for i = info.start_idx, info.end_idx do
-				local item = items[i]
+      for i = info.start_idx, info.end_idx do
+        local item = items[i]
 
-				if item.user_data == "compile_info" then
-					table.insert(lines, item.text)
-				elseif item.type ~= "" then
-					table.insert(
-						lines,
-						string.format(
-							"▸ %s:%s %d:%d %s",
-							item.type,
-							vim.fn.bufname(item.bufnr),
-							item.lnum,
-							item.col,
-							item.text
-						)
-					)
-				else
-					table.insert(lines, "  " .. item.text)
-				end
-			end
+        if item.user_data == "compile_info" then
+          table.insert(lines, item.text)
+        elseif item.type ~= "" then
+          table.insert(
+            lines,
+            string.format("▸ %s:%s %d:%d %s", item.type, vim.fn.bufname(item.bufnr), item.lnum, item.col, item.text)
+          )
+        else
+          table.insert(lines, "  " .. item.text)
+        end
+      end
 
-			return lines
-		end,
-	})
+      return lines
+    end,
+  })
 
-	local qf_win = vim.fn.getqflist({ winid = 0 }).winid
-	local qf_buf
-	local curwin
-	if qf_win == 0 then
-		curwin = vim.api.nvim_get_current_win()
-		vim.cmd.copen()
-		qf_win = vim.api.nvim_get_current_win()
-		qf_buf = vim.api.nvim_get_current_buf()
+  local qf_win = vim.fn.getqflist({ winid = 0 }).winid
+  local qf_buf
+  local curwin
+  if qf_win == 0 then
+    curwin = vim.api.nvim_get_current_win()
+    vim.cmd.copen()
+    qf_win = vim.api.nvim_get_current_win()
+    qf_buf = vim.api.nvim_get_current_buf()
 
-		vim.opt_local.number = false
-		vim.opt_local.signcolumn = "no"
-		vim.opt_local.list = false
-		vim.opt_local.winfixbuf = true
-		vim.opt_local.relativenumber = false
-		vim.bo.textwidth = 0
-	end
+    vim.opt_local.number = false
+    vim.opt_local.signcolumn = "no"
+    vim.opt_local.list = false
+    vim.opt_local.winfixbuf = true
+    vim.opt_local.relativenumber = false
+    vim.bo.textwidth = 0
+  end
 
-	if curwin and vim.api.nvim_win_is_valid(curwin) then
-		vim.api.nvim_set_current_win(curwin)
-	end
-	if qf_buf and vim.api.nvim_buf_is_valid(qf_buf) then
-		pcall(vim.api.nvim_buf_set_name, qf_buf, "Qfrun")
-	end
+  if curwin and vim.api.nvim_win_is_valid(curwin) then
+    vim.api.nvim_set_current_win(curwin)
+  end
+  if qf_buf and vim.api.nvim_buf_is_valid(qf_buf) then
+    pcall(vim.api.nvim_buf_set_name, qf_buf, "Qfrun")
+  end
 
-	vim.schedule(function()
-		vim.api.nvim_win_call(qf_win, function()
-			local count = vim.api.nvim_buf_line_count(0)
-			local height = vim.api.nvim_win_get_height(qf_win)
-			if count > height then
-				vim.api.nvim_win_set_cursor(qf_win, { count, 0 })
-			end
-			apply_qf_syntax()
-		end)
-	end)
+  vim.schedule(function()
+    vim.api.nvim_win_call(qf_win, function()
+      local count = vim.api.nvim_buf_line_count(0)
+      local height = vim.api.nvim_win_get_height(qf_win)
+      if count > height then
+        vim.api.nvim_win_set_cursor(qf_win, { count, 0 })
+      end
+      apply_qf_syntax()
+    end)
+  end)
 end
 
 function Qfrun:compile(compile_cmd)
-	local buf = vim.api.nvim_get_current_buf()
-	local ft = vim.bo[buf].ft
-	local bufname = vim.api.nvim_buf_get_name(buf)
-	local cwd = vim.uv.cwd()
-	bufname = get_relative_path(cwd, bufname)
-	self.job_status = true
+  local buf = vim.api.nvim_get_current_buf()
+  local ft = vim.bo[buf].ft
+  local bufname = vim.api.nvim_buf_get_name(buf)
+  local cwd = vim.uv.cwd()
+  bufname = get_relative_path(cwd, bufname)
+  self.job_status = true
 
-	local function execute(cmd)
-		cmd = ((cmd:gsub("${SRC}", bufname)):gsub("${TARGET}", vim.fn.fnamemodify(bufname, ":r")))
-		self.last_cmd = cmd
+  local function execute(cmd)
+    cmd = ((cmd:gsub("${SRC}", bufname)):gsub("${TARGET}", vim.fn.fnamemodify(bufname, ":r")))
+    self.last_cmd = cmd
 
-		local start_time = vim.uv.hrtime()
-		local stdout_buffer = ""
-		local stderr_buffer = ""
-		local save_item = {}
+    local start_time = vim.uv.hrtime()
+    local stdout_buffer = ""
+    local stderr_buffer = ""
+    local save_item = {}
 
-		info_list.cmd.text = self.last_cmd
-		info_list.start.text = ("Compilation started at %s"):format(os.date("%a %b %H:%M:%S"))
-		self.exec_id = self.exec_id + 1
-		local id = self.exec_id
-		vim.schedule(function()
-			if (not self.job_status) or id ~= self.exec_id then
-				return
-			end
-			local action = "a"
-			local qf_win
-			if self.qf_id then
-				qf_win = vim.fn.getqflist({ id = self.qf_id, winid = true }).winid
-				if vim.api.nvim_win_is_valid(qf_win) then
-					action = "r"
-				end
-			end
-			vim.fn.setqflist({}, action, {
-				title = "Compiling",
-				id = self.qf_id,
-				items = { info_list.start, info_list.fill, info_list.cmd },
-			})
+    info_list.cmd.text = self.last_cmd
+    info_list.start.text = ("Compilation started at %s"):format(os.date("%a %b %H:%M:%S"))
+    self.exec_id = self.exec_id + 1
+    local id = self.exec_id
+    vim.schedule(function()
+      if (not self.job_status) or id ~= self.exec_id then
+        return
+      end
+      local action = "a"
+      local qf_win
+      if self.qf_id then
+        qf_win = vim.fn.getqflist({ id = self.qf_id, winid = true }).winid
+        if vim.api.nvim_win_is_valid(qf_win) then
+          action = "r"
+        end
+      end
+      vim.fn.setqflist({}, action, {
+        title = "Compiling",
+        id = self.qf_id,
+        items = { info_list.start, info_list.fill, info_list.cmd },
+      })
 
-			if action == "r" then
-				vim.schedule(function()
-					vim.api.nvim_win_call(qf_win, function()
-						apply_qf_syntax()
-					end)
-				end)
-			end
-		end)
-		self.job = vim.system({ "sh", "-c", cmd }, {
-			text = true,
-			detach = true,
-			stdout = function(err, data)
-				if err or not data or not self.job_status or id ~= self.exec_id then
-					return
-				end
+      if action == "r" then
+        vim.schedule(function()
+          vim.api.nvim_win_call(qf_win, function()
+            apply_qf_syntax()
+          end)
+        end)
+      end
+    end)
+    self.job = vim.system({ "sh", "-c", cmd }, {
+      text = true,
+      detach = true,
+      stdout = function(err, data)
+        if err or not data or not self.job_status or id ~= self.exec_id then
+          return
+        end
 
-				vim.schedule(function()
-					if (not self.job_status) or id ~= self.exec_id then
-						return
-					end
-					stdout_buffer = stdout_buffer .. (data:gsub("\r", ""))
-					local lines = vim.split(stdout_buffer, "\n", { plain = true })
-					if not data:match("\n$") then
-						stdout_buffer = lines[#lines]
-						table.remove(lines, #lines)
-					else
-						stdout_buffer = ""
-					end
+        vim.schedule(function()
+          if (not self.job_status) or id ~= self.exec_id then
+            return
+          end
+          stdout_buffer = stdout_buffer .. (data:gsub("\r", ""))
+          local lines = vim.split(stdout_buffer, "\n", { plain = true })
+          if not data:match("\n$") then
+            stdout_buffer = lines[#lines]
+            table.remove(lines, #lines)
+          else
+            stdout_buffer = ""
+          end
 
-					local list = {}
-					for _, line in ipairs(lines) do
-						if line ~= "" then
-							if self.parse_stdout_as_stderr then
-								local err_list = parse_err(line, save_item)
-								vim.list_extend(list, err_list)
-							else
-								table.insert(list, {
-									text = line,
-									user_data = "compile_info",
-								})
-							end
-						end
-					end
+          local list = {}
+          for _, line in ipairs(lines) do
+            if line ~= "" then
+              if self.parse_stdout_as_stderr then
+                local err_list = parse_err(line, save_item)
+                vim.list_extend(list, err_list)
+              else
+                table.insert(list, {
+                  text = line,
+                  user_data = "compile_info",
+                })
+              end
+            end
+          end
 
-					self:update_qf(list)
-				end)
-			end,
+          self:update_qf(list)
+        end)
+      end,
 
-			stderr = function(err, data)
-				if err or not data or not self.job_status or id ~= self.exec_id then
-					return
-				end
+      stderr = function(err, data)
+        if err or not data or not self.job_status or id ~= self.exec_id then
+          return
+        end
 
-				vim.schedule(function()
-					if (not self.job_status) or id ~= self.exec_id then
-						return
-					end
-					stderr_buffer = stderr_buffer .. (data:gsub("\r", ""))
-					local lines = vim.split(stderr_buffer, "\n", { plain = true })
-					if not data:match("\n$") then
-						stderr_buffer = lines[#lines]
-						table.remove(lines, #lines)
-					else
-						stderr_buffer = ""
-					end
+        vim.schedule(function()
+          if (not self.job_status) or id ~= self.exec_id then
+            return
+          end
+          stderr_buffer = stderr_buffer .. (data:gsub("\r", ""))
+          local lines = vim.split(stderr_buffer, "\n", { plain = true })
+          if not data:match("\n$") then
+            stderr_buffer = lines[#lines]
+            table.remove(lines, #lines)
+          else
+            stderr_buffer = ""
+          end
 
-					local list = {}
-					local err_text = table.concat(lines, "\n")
-					if err_text ~= "" then
-						local err_list = parse_err(err_text, save_item)
-						vim.list_extend(list, err_list)
+          local list = {}
+          local err_text = table.concat(lines, "\n")
+          if err_text ~= "" then
+            local err_list = parse_err(err_text, save_item)
+            vim.list_extend(list, err_list)
 
-						self:update_qf(list)
-					end
-				end)
-			end,
-		}, function(out)
-			local duration = (vim.uv.hrtime() - start_time) / 1e9
-			vim.schedule(function()
-				if (not self.job_status) or id ~= self.exec_id then
-					return
-				end
-				local list = {}
-				if stdout_buffer ~= "" then
-					table.insert(list, {
-						text = stdout_buffer,
-						user_data = "compile_info",
-					})
-				end
+            self:update_qf(list)
+          end
+        end)
+      end,
+    }, function(out)
+      local duration = (vim.uv.hrtime() - start_time) / 1e9
+      vim.schedule(function()
+        if (not self.job_status) or id ~= self.exec_id then
+          return
+        end
+        local list = {}
+        if stdout_buffer ~= "" then
+          table.insert(list, {
+            text = stdout_buffer,
+            user_data = "compile_info",
+          })
+        end
 
-				if stderr_buffer ~= "" then
-					local err_list = parse_err(stderr_buffer)
-					vim.list_extend(list, err_list)
-				end
+        if stderr_buffer ~= "" then
+          local err_list = parse_err(stderr_buffer)
+          vim.list_extend(list, err_list)
+        end
 
-				table.insert(list, {
-					user_data = "compile_info",
-					text = " ",
-				})
-				table.insert(list, {
-					user_data = "compile_info",
-					text = ("Compilation %s at %s, duration %fs"):format(
-						out.code ~= 0 and "exited abnormally with code " .. out.code or "finished",
-						os.date("%a %b %H:%M:%S"),
-						duration
-					),
-				})
+        table.insert(list, {
+          user_data = "compile_info",
+          text = " ",
+        })
+        table.insert(list, {
+          user_data = "compile_info",
+          text = ("Compilation %s at %s, duration %fs"):format(
+            out.code ~= 0 and "exited abnormally with code " .. out.code or "finished",
+            os.date("%a %b %H:%M:%S"),
+            duration
+          ),
+        })
 
-				self:update_qf(list, true)
-			end)
-		end)
-	end
+        self:update_qf(list, true)
+      end)
+    end)
+  end
 
-	local function env_with_compile(callback)
-		local cwd = vim.uv.cwd()
-		local env_file = vim.fs.joinpath(cwd, self.project_config_name)
-		return coroutine.wrap(function()
-			local co = assert(coroutine.running())
-			vim.uv.fs_open(env_file, "r", 438, function(err, fd)
-				if err and vim.startswith(err, "ENOENT") then
-					coroutine.resume(co, fd)
-					return
-				end
-				assert(not err, err)
-				coroutine.resume(co, fd)
-			end)
-			local fd = coroutine.yield()
+  local function env_with_compile(callback)
+    local cwd = vim.uv.cwd()
+    local env_file = vim.fs.joinpath(cwd, self.project_config_name)
+    return coroutine.wrap(function()
+      local co = assert(coroutine.running())
+      vim.uv.fs_open(env_file, "r", 438, function(err, fd)
+        if err and vim.startswith(err, "ENOENT") then
+          coroutine.resume(co, fd)
+          return
+        end
+        assert(not err, err)
+        coroutine.resume(co, fd)
+      end)
+      local fd = coroutine.yield()
 
-			if fd == nil then
-				vim.schedule(function()
-					callback(compile_cmd)
-				end)
-				return
-			end
+      if fd == nil then
+        vim.schedule(function()
+          callback(compile_cmd)
+        end)
+        return
+      end
 
-			vim.uv.fs_fstat(fd, function(err, stat)
-				assert(not err)
-				coroutine.resume(co, stat.size)
-			end)
-			local size = coroutine.yield()
-			if size == 0 then
-				vim.schedule(function()
-					callback(compile_cmd)
-				end)
-				return
-			end
+      vim.uv.fs_fstat(fd, function(err, stat)
+        assert(not err)
+        coroutine.resume(co, stat.size)
+      end)
+      local size = coroutine.yield()
+      if size == 0 then
+        vim.schedule(function()
+          callback(compile_cmd)
+        end)
+        return
+      end
 
-			vim.uv.fs_read(fd, size, 0, function(err, data)
-				assert(not err)
-				vim.uv.fs_close(fd)
-				local lines = vim.split(data, "\n")
-				local cmd = nil
-				local key = ("QF_%s_COMPILE_COMMAND"):format(string.upper(ft))
-				for _, line in ipairs(lines) do
-					if line:find("^" .. key) then
-						cmd = line:sub(#key + 2, #line)
-						break
-					end
-				end
-				if cmd then
-					coroutine.resume(co, cmd)
-				else
-					vim.notify(("%s: Do Not Find '%s'"):format(env_file, key), vim.log.levels.ERROR)
-				end
-			end)
-			local cmd = coroutine.yield()
+      vim.uv.fs_read(fd, size, 0, function(err, data)
+        assert(not err)
+        vim.uv.fs_close(fd)
+        local lines = vim.split(data, "\n")
+        local cmd = nil
+        local key = ("QF_%s_COMPILE_COMMAND"):format(string.upper(ft))
+        for _, line in ipairs(lines) do
+          if line:find("^" .. key) then
+            cmd = line:sub(#key + 2, #line)
+            break
+          end
+        end
+        if cmd then
+          coroutine.resume(co, cmd)
+        else
+          vim.notify(("%s: Do Not Find '%s'"):format(env_file, key), vim.log.levels.ERROR)
+        end
+      end)
+      local cmd = coroutine.yield()
 
-			vim.schedule(function()
-				callback(cmd)
-			end)
-		end)()
-	end
+      vim.schedule(function()
+        callback(cmd)
+      end)
+    end)()
+  end
 
-	env_with_compile(function(cmd)
-		if not cmd then
-			local compile_cfg = self[ft]
-			local compile_cfg_type = type(compile_cfg)
-			if compile_cfg_type == "table" and #self[ft] > 1 then
-				vim.ui.select(compile_cfg, { prompt = "compile:" }, function(choice)
-					if choice then
-						execute(choice)
-					end
-				end)
-			elseif compile_cfg_type == "string" then
-				execute(compile_cfg)
-			elseif compile_cfg_type == "table" and #self[ft] == 1 then
-				execute(compile_cfg[1])
-			elseif compile_cfg_type == nil then
-				return
-			end
-			return
-		end
-		execute(cmd)
-	end)
+  env_with_compile(function(cmd)
+    if not cmd then
+      local compile_cfg = self[ft]
+      local compile_cfg_type = type(compile_cfg)
+      if compile_cfg_type == "table" and #self[ft] > 1 then
+        vim.ui.select(compile_cfg, { prompt = "compile:" }, function(choice)
+          if choice then
+            execute(choice)
+          end
+        end)
+      elseif compile_cfg_type == "string" then
+        execute(compile_cfg)
+      elseif compile_cfg_type == "table" and #self[ft] == 1 then
+        execute(compile_cfg[1])
+      elseif compile_cfg_type == nil then
+        return
+      end
+      return
+    end
+    execute(cmd)
+  end)
 end
 
 function Qfrun:close_running()
-	self.job_status = false
-	if self.job and not self.job:is_closing() then
-		vim.uv.kill(-self.job.pid, "sigterm")
-		vim.notify("close running job " .. self.job.pid, vim.log.levels.WARN)
-		self.job = nil
-	end
+  self.job_status = false
+  if self.job and not self.job:is_closing() then
+    vim.uv.kill(-self.job.pid, "sigterm")
+    vim.notify("close running job " .. self.job.pid, vim.log.levels.WARN)
+    self.job = nil
+  end
 end
 
 vim.api.nvim_create_autocmd("FileType", {
-	pattern = "Qfrun",
-	callback = function()
-		apply_qf_syntax()
-	end,
+  pattern = "Qfrun",
+  callback = function()
+    apply_qf_syntax()
+  end,
 })
 
 return Qfrun
