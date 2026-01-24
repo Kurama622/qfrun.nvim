@@ -6,6 +6,8 @@ end, {})
 
 vim.api.nvim_create_user_command("QfClose", function()
 	qfr:close_running()
+	qfr.last_cmd = nil
+	vim.cmd.cclose()
 end, {})
 
 vim.api.nvim_create_user_command("QfRecompile", function()

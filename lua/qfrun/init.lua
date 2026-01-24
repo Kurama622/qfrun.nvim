@@ -1,7 +1,7 @@
 local Qfrun = {
-	["cpp"] = { "g++ -Wall ${source} -o ${output} && ./${output}", "make" },
-	["python"] = { "python ${source}" },
-	["lua"] = { "nvim -l ${source}" },
+	["cpp"] = { "g++ -Wall ${SRC} -o ${TARGET} && ./${TARGET}", "make all && make run" },
+	["python"] = { "python ${SRC}" },
+	["lua"] = { "nvim -l ${SRC}" },
 
 	parse_stdout_as_stderr = false,
 	project_config_name = ".env",
@@ -9,6 +9,37 @@ local Qfrun = {
 	qf_id = nil,
 	job = nil, ---@type vim.SystemObj?
 }
+
+local function get_relative_path(base, target)
+	-- 1. 规范化路径：转为绝对路径并统一分隔符
+	local function normalize(p)
+		return vim.fn.fnamemodify(p, ":p"):gsub("\\", "/"):gsub("/$", "")
+	end
+
+	local b_split = vim.split(normalize(base), "/", { trimempty = true })
+	local t_split = vim.split(normalize(target), "/", { trimempty = true })
+
+	-- 2. 找出公共前缀
+	local i = 1
+	while i <= #b_split and i <= #t_split and b_split[i] == t_split[i] do
+		i = i + 1
+	end
+
+	-- 3. 计算需要向上跳多少层 (..)
+	local ups = {}
+	for _ = i, #b_split do
+		table.insert(ups, "..")
+	end
+
+	-- 4. 拼接目标剩余路径
+	local remains = {}
+	for j = i, #t_split do
+		table.insert(remains, t_split[j])
+	end
+
+	local res = table.concat(vim.list_extend(ups, remains), "/")
+	return res == "" and "." or res
+end
 
 function Qfrun.setup(opts)
 	Qfrun = vim.api.tbl_extend("force", Qfrun, opts or {})
@@ -179,7 +210,7 @@ function Qfrun:update_qf(qf_list, over)
 		vim.api.nvim_set_current_win(curwin)
 	end
 	if qf_buf and vim.api.nvim_buf_is_valid(qf_buf) then
-		vim.api.nvim_buf_set_name(qf_buf, "Qfrun")
+		pcall(vim.api.nvim_buf_set_name, qf_buf, "Qfrun")
 	end
 
 	vim.schedule(function()
@@ -195,8 +226,14 @@ function Qfrun:update_qf(qf_list, over)
 end
 
 function Qfrun:compile(compile_cmd)
+	local buf = vim.api.nvim_get_current_buf()
+	local ft = vim.bo[buf].ft
+	local bufname = vim.api.nvim_buf_get_name(buf)
+	local cwd = vim.uv.cwd()
+	bufname = get_relative_path(cwd, bufname)
+
 	local function execute(cmd)
-		cmd = ((cmd:gsub("${source}", vim.fn.expand("%"))):gsub("${output}", vim.fn.expand("%<")))
+		cmd = ((cmd:gsub("${SRC}", bufname)):gsub("${TARGET}", vim.fn.fnamemodify(bufname, ":r")))
 		self.last_cmd = cmd
 
 		local start_time = vim.uv.hrtime()
@@ -364,19 +401,21 @@ function Qfrun:compile(compile_cmd)
 				vim.uv.fs_close(fd)
 				local lines = vim.split(data, "\n")
 				local cmd = nil
+				local key = ("QF_%s_COMPILE_COMMAND"):format(string.upper(ft))
 				for _, line in ipairs(lines) do
-					if line:find("^COMPILE_COMMAND") then
-						cmd = line:sub(17, #line)
+					if line:find("^" .. key) then
+						cmd = line:sub(#key + 2, #line)
 						break
 					end
 				end
 				if cmd then
 					coroutine.resume(co, cmd)
 				else
-					vim.notify(env_file .. ": Do Not Find 'COMPILE_COMMAND'", vim.log.levels.ERROR)
+					vim.notify(("%s: Do Not Find '%s'"):format(env_file, key), vim.log.levels.ERROR)
 				end
 			end)
 			local cmd = coroutine.yield()
+
 			vim.schedule(function()
 				callback(cmd)
 			end)
@@ -385,8 +424,6 @@ function Qfrun:compile(compile_cmd)
 
 	env_with_compile(function(cmd)
 		if not cmd then
-			local buf = vim.api.nvim_get_current_buf()
-			local ft = vim.bo[buf].ft
 			local compile_cfg = self[ft]
 			local compile_cfg_type = type(compile_cfg)
 			if compile_cfg_type == "table" and #self[ft] > 1 then
