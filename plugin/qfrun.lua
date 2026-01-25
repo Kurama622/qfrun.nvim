@@ -7,6 +7,7 @@ end, {})
 vim.api.nvim_create_user_command("QfClose", function()
   qfr:close_running()
   qfr.last_cmd = nil
+  qfr.src_dir = nil
   vim.cmd.cclose()
 end, {})
 

@@ -9,6 +9,7 @@ local Qfrun = {
   qf_id = nil,
   job = nil, ---@type vim.SystemObj?
   job_status = false,
+  src_dir = nil,
   exec_id = 0,
 }
 
@@ -59,6 +60,9 @@ local function parse_err(stderr, save_item)
     local line = lines[i]
 
     local filename, lnum, col, type_str, msg = line:match("^([^:]+):(%d+):(%d+):%s*(%w+):%s*(.*)$")
+    filename = (filename and (not vim.startswith(filename, vim.env.HOME)) and Qfrun.src_dir)
+        and vim.fs.joinpath(Qfrun.src_dir, filename)
+      or filename
     local bufnr = vim.fn.bufadd(filename)
 
     if filename and lnum and col then
@@ -211,7 +215,7 @@ function Qfrun:update_qf(qf_list, over)
   end
 
   vim.schedule(function()
-    vim.api.nvim_win_call(qf_win, function()
+    pcall(vim.api.nvim_win_call, qf_win, function()
       local count = vim.api.nvim_buf_line_count(0)
       local height = vim.api.nvim_win_get_height(qf_win)
       if count > height then
@@ -414,16 +418,15 @@ function Qfrun:compile(compile_cmd)
         local cmd = nil
         local key = ("QF_%s_COMPILE_COMMAND"):format(string.upper(ft))
         for _, line in ipairs(lines) do
+          if line:find("^SRC_DIR") then
+            self.src_dir = line:sub(#"SRC_DIR" + 2, #line)
+          end
           if line:find("^" .. key) then
             cmd = line:sub(#key + 2, #line)
             break
           end
         end
-        if cmd then
-          coroutine.resume(co, cmd)
-        else
-          vim.notify(("%s: Do Not Find '%s'"):format(env_file, key), vim.log.levels.ERROR)
-        end
+        coroutine.resume(co, cmd)
       end)
       local cmd = coroutine.yield()
 
