@@ -60,7 +60,7 @@ local function parse_err(stderr, save_item)
     local line = lines[i]
 
     local filename, lnum, col, type_str, msg = line:match("^([^:]+):(%d+):(%d+):%s*(%w+):%s*(.*)$")
-    filename = (filename and (not vim.startswith(filename, vim.env.HOME)) and Qfrun.src_dir)
+    filename = (filename and (not vim.startswith(filename, "/")) and Qfrun.src_dir)
         and vim.fs.joinpath(Qfrun.src_dir, filename)
       or filename
     local bufnr = vim.fn.bufadd(filename)
@@ -75,9 +75,6 @@ local function parse_err(stderr, save_item)
         bufnr = bufnr,
       }
       table.insert(list, prev_item)
-      save_item.lnum = prev_item.lnum
-      save_item.col = prev_item.col
-      save_item.bufnr = prev_item.bufnr
 
       local j = i + 1
 
@@ -105,10 +102,6 @@ local function parse_err(stderr, save_item)
     else
       if save_item then
         table.insert(list, {
-          filename = save_item.filename,
-          bufnr = save_item.bufnr,
-          lnum = save_item.lnum,
-          col = save_item.col,
           text = line,
           user_data = "compile_info",
         })
