@@ -136,7 +136,7 @@ local function apply_qf_syntax()
     syntax match QfCode /\vcode\s+\zs\d+/
 
     highlight QfIndicator guifg=#887ec8
-    highlight QfDate guifg=NvimLightGreen
+    highlight QfDate guifg=#84a800
     highlight QfLineCol guifg=#c7c938
     highlight QfErrorMsg guifg=#abb2bf
     highlight QfError guifg=#d75f5f gui=bold,underline
