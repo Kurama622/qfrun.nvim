@@ -126,9 +126,10 @@ local function apply_qf_syntax()
     syntax match QfIndicator /\v\|*\s*\zs\~*\^\~*/
     syntax match QfDate / \d\+:\d\+:\d\+/
     syntax match QfError /^▸ \zsE:[^ ]*/ 
+    syntax match QfWarn /^▸ \zsW:[^ ]*/
+    syntax match QfNote /^▸ \zsN:[^ ]*/
     syntax match QfLineCol / \d\+:\d\+ /
     syntax match QfErrorMsg /use.*$/
-    syntax match QfWarn /^▸ \zsW:[^ ]*/
     syntax match QfContext /^  .*/ contains=ALL
     syntax match QfFinish /\<finished\>/
     syntax match QfExit /\<exited abnormally\>/
@@ -140,6 +141,7 @@ local function apply_qf_syntax()
     highlight QfErrorMsg guifg=#abb2bf
     highlight QfError guifg=#d75f5f gui=bold,underline
     highlight QfWarn guifg=#e0af68 gui=bold,underline
+    highlight QfNote guifg=#268bd2
     highlight QfContext guifg=#abb2bf
     highlight QfFinish guifg=#62c92a
     highlight QfExit guifg=#992c3d gui=bold
