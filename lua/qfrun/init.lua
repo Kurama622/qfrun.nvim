@@ -216,6 +216,7 @@ function Qfrun:update_qf(qf_list, over)
     vim.opt_local.list = false
     vim.opt_local.winfixbuf = true
     vim.opt_local.relativenumber = false
+    vim.opt_local.cursorline = true
     vim.bo.textwidth = 0
   end
 
