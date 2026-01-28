@@ -5,14 +5,24 @@ local Qfrun = {
 
   parse_stdout_as_stderr = false,
   project_config_name = ".env",
+  enable_diagnostic = false,
   last_cmd = nil,
   qf_id = nil,
+  qf_buf = -1,
   job = nil, ---@type vim.SystemObj?
   job_status = false,
   src_dir = nil,
   exec_id = 0,
+  diagnostics = {},
 }
 
+local severity = {
+  E = vim.diagnostic.severity.ERROR,
+  W = vim.diagnostic.severity.WARN,
+  N = vim.diagnostic.severity.INFO,
+}
+
+local qf_ns = vim.api.nvim_create_namespace("Qfrun")
 local function get_relative_path(base, target)
   -- 1. 规范化路径：转为绝对路径并统一分隔符
   local function normalize(p)
@@ -75,6 +85,14 @@ local function parse_err(stderr, save_item)
         bufnr = bufnr,
       }
       table.insert(list, prev_item)
+      if Qfrun.enable_diagnostic then
+        table.insert(Qfrun.diagnostics, {
+          lnum = 0,
+          col = 0,
+          message = "",
+          severity = severity[prev_item.type],
+        })
+      end
 
       local j = i + 1
 
@@ -186,13 +204,12 @@ function Qfrun:update_qf(qf_list, over)
   })
 
   local qf_win = vim.fn.getqflist({ winid = 0 }).winid
-  local qf_buf
   local curwin
   if qf_win == 0 then
     curwin = vim.api.nvim_get_current_win()
     vim.cmd.copen()
     qf_win = vim.api.nvim_get_current_win()
-    qf_buf = vim.api.nvim_get_current_buf()
+    self.qf_buf = vim.api.nvim_get_current_buf()
 
     vim.opt_local.number = false
     vim.opt_local.signcolumn = "no"
@@ -205,8 +222,11 @@ function Qfrun:update_qf(qf_list, over)
   if curwin and vim.api.nvim_win_is_valid(curwin) then
     vim.api.nvim_set_current_win(curwin)
   end
-  if qf_buf and vim.api.nvim_buf_is_valid(qf_buf) then
-    pcall(vim.api.nvim_buf_set_name, qf_buf, "Qfrun")
+  if self.qf_buf and vim.api.nvim_buf_is_valid(self.qf_buf) then
+    pcall(vim.api.nvim_buf_set_name, Qfrun.qf_buf, "Qfrun")
+    if not vim.tbl_isempty(self.diagnostics) then
+      vim.diagnostic.set(qf_ns, self.qf_buf, self.diagnostics)
+    end
   end
 
   vim.schedule(function()
@@ -228,6 +248,9 @@ function Qfrun:compile(compile_cmd)
   local cwd = vim.uv.cwd()
   bufname = get_relative_path(cwd, bufname)
   self.job_status = true
+  for k in pairs(self.diagnostics) do
+    self.diagnostics[k] = nil
+  end
 
   local function execute(cmd)
     cmd = ((cmd:gsub("${SRC}", bufname)):gsub("${TARGET}", vim.fn.fnamemodify(bufname, ":r")))
