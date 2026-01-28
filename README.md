@@ -1,5 +1,7 @@
 # Qfrun.nvim
 
+![Qfrun](https://github.com/user-attachments/assets/74b9127a-0e87-4e1a-89ce-3510affd7150)
+
 ## Installation
 
 ```lua
