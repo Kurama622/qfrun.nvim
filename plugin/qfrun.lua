@@ -9,6 +9,7 @@ vim.api.nvim_create_user_command("QfClose", function()
   qfr.last_cmd = nil
   qfr.src_dir = nil
   qfr.qf_buf = -1
+  qfr.project_compile_langs = nil
   vim.cmd.cclose()
 end, {})
 
