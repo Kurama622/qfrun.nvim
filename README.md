@@ -23,6 +23,8 @@
 set language compile options in opts or set the project config file (default `.env`)
 
 `.env`:
+- `PROJECT_COMPILE_LANGS`: Optional. Analysis of output in multiple languages. Place at the beginning of the `.env` file.
+    - e.g.: `PROJECT_COMPILE_LANGS=python,cpp`
 - `SRC_DIR`: Optional. When the error message contains an incorrect path, configure it.
 - `QF_{language}_COMPILE_COMMAND`
 
