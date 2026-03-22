@@ -61,7 +61,7 @@ function Qfrun.setup(opts)
   end
 end
 
-local function parse_err(stderr, save_item)
+local function parse_err(stderr, save_item, ft)
   local list = {}
   local lines = vim.split(stderr, "\n", { trimempty = true })
 
@@ -69,9 +69,35 @@ local function parse_err(stderr, save_item)
   local prev_item = {}
   while i <= #lines do
     local line = lines[i]
+    local filename, lnum, col, type_str, msg = nil, nil, nil, "", ""
 
-    local filename, lnum, col, type_str, msg =
-      line:match("^([^:]+):(%d+):(%d+):%s*(%w+):%s*(.*)$")
+    if type(Qfrun.project_compile_langs) == "table" then
+      for _, lang in ipairs(Qfrun.project_compile_langs) do
+        local status, lang_parser = pcall(require, "qfrun.lang." .. lang)
+        if not status then
+          vim.notify_once(
+            lang .. " language is not supported",
+            vim.log.levels.WARN
+          )
+        else
+          filename, lnum, col, type_str, msg = lang_parser.match(line)
+          if filename ~= nil and lnum ~= nil and col ~= nil then
+            break
+          end
+        end
+      end
+    else
+      local status, lang_parser = pcall(require, "qfrun.lang." .. ft)
+      if not status then
+        vim.notify_once(
+          ft .. " language is not supported",
+          vim.log.levels.WARN
+        )
+      else
+        filename, lnum, col, type_str, msg = lang_parser.match(line)
+      end
+    end
+
     filename = (
       filename
       and (not vim.startswith(filename, "/"))
@@ -337,7 +363,7 @@ function Qfrun:compile(compile_cmd)
           for _, line in ipairs(lines) do
             if line ~= "" then
               if self.parse_stdout_as_stderr then
-                local err_list = parse_err(line, save_item)
+                local err_list = parse_err(line, save_item, ft)
                 vim.list_extend(list, err_list)
               else
                 table.insert(list, {
@@ -373,7 +399,7 @@ function Qfrun:compile(compile_cmd)
           local list = {}
           local err_text = table.concat(lines, "\n")
           if err_text ~= "" then
-            local err_list = parse_err(err_text, save_item)
+            local err_list = parse_err(err_text, save_item, ft)
             vim.list_extend(list, err_list)
 
             self:update_qf(list)
@@ -395,7 +421,7 @@ function Qfrun:compile(compile_cmd)
         end
 
         if stderr_buffer ~= "" then
-          local err_list = parse_err(stderr_buffer)
+          local err_list = parse_err(stderr_buffer, nil, ft)
           vim.list_extend(list, err_list)
         end
 
@@ -434,7 +460,7 @@ function Qfrun:compile(compile_cmd)
 
       if fd == nil then
         vim.schedule(function()
-          callback(compile_cmd)
+          callback(compile_cmd, ft)
         end)
         return
       end
@@ -446,7 +472,7 @@ function Qfrun:compile(compile_cmd)
       local size = coroutine.yield()
       if size == 0 then
         vim.schedule(function()
-          callback(compile_cmd)
+          callback(compile_cmd, ft)
         end)
         return
       end
@@ -461,6 +487,10 @@ function Qfrun:compile(compile_cmd)
           if line:find("^SRC_DIR") then
             self.src_dir = line:sub(#"SRC_DIR" + 2, #line)
           end
+          if line:find("^PROJECT_COMPILE_LANGS") then
+            self.project_compile_langs = vim.split(line:sub(23, #line), ",")
+          end
+
           if line:find("^" .. key) then
             cmd = line:sub(#key + 2, #line)
             break
@@ -471,16 +501,16 @@ function Qfrun:compile(compile_cmd)
       local cmd = coroutine.yield()
 
       vim.schedule(function()
-        callback(cmd)
+        callback(cmd, ft)
       end)
     end)()
   end
 
-  env_with_compile(function(cmd)
+  env_with_compile(function(cmd, lang)
     if not cmd then
-      local compile_cfg = self[ft]
+      local compile_cfg = self[lang]
       local compile_cfg_type = type(compile_cfg)
-      if compile_cfg_type == "table" and #self[ft] > 1 then
+      if compile_cfg_type == "table" and #self[lang] > 1 then
         vim.ui.select(compile_cfg, { prompt = "compile:" }, function(choice)
           if choice then
             execute(choice)
@@ -488,7 +518,7 @@ function Qfrun:compile(compile_cmd)
         end)
       elseif compile_cfg_type == "string" then
         execute(compile_cfg)
-      elseif compile_cfg_type == "table" and #self[ft] == 1 then
+      elseif compile_cfg_type == "table" and #self[lang] == 1 then
         execute(compile_cfg[1])
       elseif compile_cfg_type == nil then
         return
