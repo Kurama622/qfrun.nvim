@@ -2,6 +2,7 @@ local Qfrun = {
   ["cpp"] = { "g++ -Wall ${SRC} -o ${TARGET} && ./${TARGET}" },
   ["python"] = { "python ${SRC}" },
   ["lua"] = { "nvim -l ${SRC}" },
+  ["sh"] = { "bash ${SRC}" },
 
   parse_stdout_as_stderr = false,
   project_config_name = ".env",
@@ -69,8 +70,13 @@ local function parse_err(stderr, save_item)
   while i <= #lines do
     local line = lines[i]
 
-    local filename, lnum, col, type_str, msg = line:match("^([^:]+):(%d+):(%d+):%s*(%w+):%s*(.*)$")
-    filename = (filename and (not vim.startswith(filename, "/")) and Qfrun.src_dir)
+    local filename, lnum, col, type_str, msg =
+      line:match("^([^:]+):(%d+):(%d+):%s*(%w+):%s*(.*)$")
+    filename = (
+      filename
+      and (not vim.startswith(filename, "/"))
+      and Qfrun.src_dir
+    )
         and vim.fs.joinpath(Qfrun.src_dir, filename)
       or filename
     local bufnr = vim.fn.bufadd(filename)
@@ -192,7 +198,14 @@ function Qfrun:update_qf(qf_list, over)
         elseif item.type ~= "" then
           table.insert(
             lines,
-            string.format("▸ %s:%s %d:%d %s", item.type, vim.fn.bufname(item.bufnr), item.lnum, item.col, item.text)
+            string.format(
+              "▸ %s:%s %d:%d %s",
+              item.type,
+              vim.fn.bufname(item.bufnr),
+              item.lnum,
+              item.col,
+              item.text
+            )
           )
         else
           table.insert(lines, "  " .. item.text)
@@ -254,7 +267,12 @@ function Qfrun:compile(compile_cmd)
   end
 
   local function execute(cmd)
-    cmd = ((cmd:gsub("${SRC}", bufname)):gsub("${TARGET}", vim.fn.fnamemodify(bufname, ":r")))
+    cmd = (
+      (cmd:gsub("${SRC}", bufname)):gsub(
+        "${TARGET}",
+        vim.fn.fnamemodify(bufname, ":r")
+      )
+    )
     self.last_cmd = cmd
 
     local start_time = vim.uv.hrtime()
@@ -263,7 +281,9 @@ function Qfrun:compile(compile_cmd)
     local save_item = {}
 
     info_list.cmd.text = self.last_cmd
-    info_list.start.text = ("Compilation started at %s"):format(os.date("%a %b %H:%M:%S"))
+    info_list.start.text = ("Compilation started at %s"):format(
+      os.date("%a %b %H:%M:%S")
+    )
     self.exec_id = self.exec_id + 1
     local id = self.exec_id
     vim.schedule(function()
@@ -386,7 +406,8 @@ function Qfrun:compile(compile_cmd)
         table.insert(list, {
           user_data = "compile_info",
           text = ("Compilation %s at %s, duration %fs"):format(
-            out.code ~= 0 and "exited abnormally with code " .. out.code or "finished",
+            out.code ~= 0 and "exited abnormally with code " .. out.code
+              or "finished",
             os.date("%a %b %H:%M:%S"),
             duration
           ),
