@@ -5,7 +5,8 @@ function M.match(line)
   local filename, lnum, type_str, msg =
     line:match("^(.*):(%d+):.*(Warning):%s*(.*)$")
   if filename == nil or lnum == nil then
-    filename, lnum = line:match([[%s*File%s*"(.*)",%s*line%s*(%d+)]])
+    filename, lnum, msg =
+      line:match([[%s*File%s*"(.*)",%s*line%s*(%d+),*%s*(.*)]])
     type_str = "E"
   end
   local col = 1
