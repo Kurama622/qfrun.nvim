@@ -177,6 +177,7 @@ local function apply_qf_syntax()
     syntax match QfFinish /\<finished\>/
     syntax match QfExit /\<exited abnormally\>/
     syntax match QfCode /\vcode\s+\zs\d+/
+    syntax match QfCode /\vsignal\s+\zs\d+/
 
     highlight QfIndicator guifg=#887ec8
     highlight QfDate guifg=#84a800
@@ -408,6 +409,10 @@ function Qfrun:compile(compile_cmd)
       end,
     }, function(out)
       local duration = (vim.uv.hrtime() - start_time) / 1e9
+      local finish_reason = (out.code ~= 0)
+          and "exited abnormally with code " .. out.code
+        or (out.signal ~= 0) and "exited abnormally with signal " .. out.signal
+        or "finished"
       vim.schedule(function()
         if (not self.job_status) or id ~= self.exec_id then
           return
@@ -432,8 +437,7 @@ function Qfrun:compile(compile_cmd)
         table.insert(list, {
           user_data = "compile_info",
           text = ("Compilation %s at %s, duration %fs"):format(
-            out.code ~= 0 and "exited abnormally with code " .. out.code
-              or "finished",
+            finish_reason,
             os.date("%a %b %H:%M:%S"),
             duration
           ),
