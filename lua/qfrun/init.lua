@@ -1,13 +1,14 @@
 local Qfrun = {
-  ["cpp"] = { "g++ -Wall ${SRC} -o ${TARGET} && ./${TARGET}" },
-  ["python"] = { "python ${SRC}" },
-  ["lua"] = { "nvim -l ${SRC}" },
-  ["sh"] = { "bash ${SRC}" },
+  ["cpp"] = { { cmd = "g++ -Wall ${SRC} -o ${TARGET} && ./${TARGET}" } },
+  ["python"] = { { cmd = "python ${SRC}" } },
+  ["lua"] = { { cmd = "nvim -l ${SRC}" } },
+  ["sh"] = { { cmd = "bash ${SRC}" } },
 
   parse_stdout_as_stderr = false,
   project_config_name = ".env",
   enable_diagnostic = false,
   last_cmd = nil,
+  last_on_done = nil,
   qf_id = nil,
   qf_buf = -1,
   job = nil, ---@type vim.SystemObj?
@@ -22,6 +23,15 @@ local severity = {
   W = vim.diagnostic.severity.WARN,
   N = vim.diagnostic.severity.INFO,
 }
+
+local function parse_command(str, bufname)
+  return (
+    (str:gsub("${SRC}", bufname)):gsub(
+      "${TARGET}",
+      vim.fn.fnamemodify(bufname, ":r")
+    )
+  )
+end
 
 local qf_ns = vim.api.nvim_create_namespace("Qfrun")
 local function get_relative_path(base, target)
@@ -57,7 +67,16 @@ end
 
 function Qfrun.setup(opts)
   for key, val in pairs(opts) do
-    Qfrun[key] = val
+    if key == "popup_win_opts" then
+      Qfrun[key] = vim.tbl_deep_extend("force", {
+        relative = "win",
+        width_ratio = 0.6,
+        height_ratio = 0.6,
+        border = "rounded",
+      }, val)
+    else
+      Qfrun[key] = val
+    end
   end
 end
 
@@ -282,7 +301,7 @@ function Qfrun:update_qf(qf_list, over)
   end)
 end
 
-function Qfrun:compile(compile_cmd)
+function Qfrun:compile(compile_cmd, on_done_cmd)
   local buf = vim.api.nvim_get_current_buf()
   local ft = vim.bo[buf].ft
   local bufname = vim.api.nvim_buf_get_name(buf)
@@ -293,13 +312,8 @@ function Qfrun:compile(compile_cmd)
     self.diagnostics[k] = nil
   end
 
-  local function execute(cmd)
-    cmd = (
-      (cmd:gsub("${SRC}", bufname)):gsub(
-        "${TARGET}",
-        vim.fn.fnamemodify(bufname, ":r")
-      )
-    )
+  local function execute(cmd, on_done)
+    cmd = parse_command(cmd, bufname)
     self.last_cmd = cmd
 
     local start_time = vim.uv.hrtime()
@@ -339,9 +353,12 @@ function Qfrun:compile(compile_cmd)
         end)
       end
     end)
+
+    self:update_qf({})
     self.job = vim.system({ "sh", "-c", cmd }, {
       text = true,
       detach = true,
+      stdin = true,
       stdout = function(err, data)
         if err or not data or not self.job_status or id ~= self.exec_id then
           return
@@ -444,6 +461,26 @@ function Qfrun:compile(compile_cmd)
         })
 
         self:update_qf(list, true)
+        if on_done then
+          on_done = parse_command(on_done, bufname)
+          self.last_on_done = on_done
+          local height =
+            math.floor(vim.o.lines * self.popup_win_opts.height_ratio)
+          local width =
+            math.floor(vim.o.columns * self.popup_win_opts.width_ratio)
+          local bufnr = vim.api.nvim_create_buf(false, true)
+          vim.api.nvim_open_win(bufnr, true, {
+            relative = self.popup_win_opts.relative,
+            row = math.floor((vim.o.lines - height) / 2),
+            col = math.floor((vim.o.columns - width) / 2),
+            height = height,
+            width = width,
+            style = "minimal",
+            border = self.popup_win_opts.border,
+          })
+          vim.fn.jobstart(on_done, { term = true })
+          vim.cmd.startinsert()
+        end
       end)
     end)
   end
@@ -464,7 +501,7 @@ function Qfrun:compile(compile_cmd)
 
       if fd == nil then
         vim.schedule(function()
-          callback(compile_cmd, ft)
+          callback(compile_cmd, on_done_cmd, ft)
         end)
         return
       end
@@ -476,7 +513,7 @@ function Qfrun:compile(compile_cmd)
       local size = coroutine.yield()
       if size == 0 then
         vim.schedule(function()
-          callback(compile_cmd, ft)
+          callback(compile_cmd, on_done_cmd, ft)
         end)
         return
       end
@@ -485,7 +522,7 @@ function Qfrun:compile(compile_cmd)
         assert(not err)
         vim.uv.fs_close(fd)
         local lines = vim.split(data, "\n")
-        local cmd = nil
+        local cmd, on_done = nil, nil
         local key = ("QF_%s_COMPILE_COMMAND"):format(string.upper(ft))
         for _, line in ipairs(lines) do
           if line:find("^SRC_DIR") then
@@ -496,41 +533,61 @@ function Qfrun:compile(compile_cmd)
           end
 
           if line:find("^" .. key) then
-            cmd = line:sub(#key + 2, #line)
-            break
+            cmd, on_done = unpack(vim.split(line:sub(#key + 2, #line), "->"))
           end
         end
-        coroutine.resume(co, cmd)
+        coroutine.resume(co, cmd, on_done)
       end)
-      local cmd = coroutine.yield()
+      local cmd, on_done = coroutine.yield()
 
       vim.schedule(function()
-        callback(cmd, ft)
+        callback(cmd, on_done, ft)
       end)
     end)()
   end
 
-  env_with_compile(function(cmd, lang)
+  env_with_compile(function(cmd, on_done, lang)
     if not cmd then
       local compile_cfg = self[lang]
       local compile_cfg_type = type(compile_cfg)
-      if compile_cfg_type == "table" and #self[lang] > 1 then
-        vim.ui.select(compile_cfg, { prompt = "compile:" }, function(choice)
-          if choice then
-            execute(choice)
-          end
-        end)
+      if compile_cfg_type == "table" then
+        if #self[lang] > 1 then
+          vim.ui.select(
+            vim.tbl_map(function(item)
+              return item.desc
+            end, compile_cfg),
+            { prompt = "compile:" },
+            function(choice, n)
+              if choice then
+                execute(compile_cfg[n].cmd, compile_cfg[n].on_done)
+              end
+            end
+          )
+        elseif #self[lang] == 1 then
+          execute(compile_cfg[1].cmd, compile_cfg[1].on_done)
+        else
+          execute(compile_cfg.cmd, compile_cfg.on_done)
+        end
       elseif compile_cfg_type == "string" then
-        execute(compile_cfg)
-      elseif compile_cfg_type == "table" and #self[lang] == 1 then
-        execute(compile_cfg[1])
+        execute(unpack(vim.split(compile_cfg, "->")))
       elseif compile_cfg_type == nil then
         return
       end
       return
     end
-    execute(cmd)
+
+    execute(cmd, on_done)
   end)
+end
+
+function Qfrun:qf_interactive()
+  if self.job and not self.job:is_closing() then
+    vim.ui.input({ prompt = "stdin" }, function(args)
+      if args then
+        self.job:write(args .. "\n")
+      end
+    end)
+  end
 end
 
 function Qfrun:close_running()
@@ -541,12 +598,5 @@ function Qfrun:close_running()
     self.job = nil
   end
 end
-
-vim.api.nvim_create_autocmd("FileType", {
-  pattern = "Qfrun",
-  callback = function()
-    apply_qf_syntax()
-  end,
-})
 
 return Qfrun
