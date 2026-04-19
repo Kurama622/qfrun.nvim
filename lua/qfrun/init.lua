@@ -461,7 +461,7 @@ function Qfrun:compile(compile_cmd, on_done_cmd)
         })
 
         self:update_qf(list, true)
-        if on_done then
+        if on_done and out.code == 0 and out.signal == 0 then
           on_done = parse_command(on_done, bufname)
           self.last_on_done = on_done
           local height =
