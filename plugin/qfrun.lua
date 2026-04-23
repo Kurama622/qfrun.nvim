@@ -25,8 +25,12 @@ vim.api.nvim_create_autocmd("FileType", {
   group = vim.api.nvim_create_augroup("QfInput", { clear = true }),
   pattern = "qf",
   callback = function()
-    vim.keymap.set("n", "i", function()
-      qfr:qf_interactive()
-    end, { buf = 0 })
+    if vim.api.nvim_buf_is_valid(qfr.qf_buf) then
+      vim.api.nvim_buf_set_keymap(qfr.qf_buf, "n", "i", "", {
+        callback = function()
+          qfr:qf_interactive()
+        end,
+      })
+    end
   end,
 })

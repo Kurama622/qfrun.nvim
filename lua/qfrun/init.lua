@@ -16,12 +16,19 @@ local Qfrun = {
   src_dir = nil,
   exec_id = 0,
   diagnostics = {},
+  popup_win_opts = {
+    relative = "win",
+    width_ratio = 0.6,
+    height_ratio = 0.6,
+    border = "rounded",
+  },
 }
 
 local severity = {
   E = vim.diagnostic.severity.ERROR,
   W = vim.diagnostic.severity.WARN,
   N = vim.diagnostic.severity.INFO,
+  H = vim.diagnostic.severity.HINT,
 }
 
 local function parse_command(str, bufname)
@@ -68,12 +75,7 @@ end
 function Qfrun.setup(opts)
   for key, val in pairs(opts) do
     if key == "popup_win_opts" then
-      Qfrun[key] = vim.tbl_deep_extend("force", {
-        relative = "win",
-        width_ratio = 0.6,
-        height_ratio = 0.6,
-        border = "rounded",
-      }, val)
+      Qfrun[key] = vim.tbl_deep_extend("force", Qfrun.popup_win_opts, val)
     else
       Qfrun[key] = val
     end

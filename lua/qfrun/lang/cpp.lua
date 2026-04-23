@@ -4,12 +4,12 @@ function M.match(line)
     line:match("^([^:]+):(%d+):(%d+): (%w+):%s*(.*)$")
   if filename == nil then
     filename, lnum, msg = line:match("[^:]+: (.*):(%d+): (.*)")
-    col, type_str = 1, "E"
+    col, type_str = 1, "H"
   end
 
   if filename == nil then
     filename, lnum, col, msg = line:match("([^:]+):(%d+):(%d+):%s+(.*)")
-    col, type_str = 1, "E"
+    col, type_str = 1, "H"
   end
 
   return filename, lnum, col, type_str, msg
