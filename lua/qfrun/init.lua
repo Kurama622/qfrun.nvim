@@ -288,6 +288,7 @@ function Qfrun:update_qf(qf_list, over)
     pcall(vim.api.nvim_buf_set_name, Qfrun.qf_buf, "Qfrun")
     if not vim.tbl_isempty(self.diagnostics) then
       vim.diagnostic.set(qf_ns, self.qf_buf, self.diagnostics)
+      vim.diagnostic.hide(nil, self.qf_buf)
     end
   end
 
